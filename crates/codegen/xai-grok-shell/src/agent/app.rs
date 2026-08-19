@@ -332,8 +332,11 @@ pub async fn run_headless(
     crate::http::set_process_client_mode_headless();
     use crate::agent::relay::spawn_relay_connection_with_callback;
     use tokio_util::sync::CancellationToken;
-    const HEADLESS_NO_SESSION: &str = "Headless mode requires a grok.com session. \
-        Run `grok login` to sign in, or use `grok agent stdio` for API-key access.";
+    // Headless drives the grok.com relay, which requires a first-party session
+    // credential (`GrokAuth::is_xai_auth`). A static or built-in API key cannot
+    // satisfy that gate, so this build's default credential is not enough here.
+    const HEADLESS_NO_SESSION: &str = "Headless mode requires a grok.com session credential; \
+        a static API key cannot drive the relay. Use `grok agent stdio` for API-key access.";
     xai_file_utils::queue::cleanup_orphaned_uploads(
         &grok_home::grok_home(),
         xai_file_utils::queue::DEFAULT_MAX_AGE,
@@ -341,8 +344,8 @@ pub async fn run_headless(
     let mut agent_config = agent_config.clone();
     agent_config.mode = crate::agent::config::AgentMode::Headless;
     let ctx = &agent_config.grok_com_config;
+    let auth_manager = Arc::new(AuthManager::new(&grok_home::grok_home(), ctx.clone()));
     let (mut auth, did_browser_flow) = if reauthenticate {
-        let auth_manager = Arc::new(AuthManager::new(&grok_home::grok_home(), ctx.clone()));
         run_auth_flow(
             &auth_manager,
             ctx,
@@ -354,9 +357,7 @@ pub async fn run_headless(
         )
         .await?
     } else {
-        let auth_manager = Arc::new(AuthManager::new(&grok_home::grok_home(), ctx.clone()));
-        if crate::agent::auth_method::has_xai_api_key_env()
-            && ctx.auth_provider_command.is_none()
+        if ctx.auth_provider_command.is_none()
             && crate::auth::try_ensure_fresh_auth(ctx).await.is_none()
         {
             anyhow::bail!("{HEADLESS_NO_SESSION}");

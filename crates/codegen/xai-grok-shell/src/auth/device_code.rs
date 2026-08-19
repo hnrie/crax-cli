@@ -542,14 +542,21 @@ pub(crate) mod tests {
         );
     }
 
+    /// Config with no `preferred_method` pin, so multi-method fallthrough
+    /// applies. The shipped default pins `PreferredAuthMethod::ApiKey`, which
+    /// fails closed on the OIDC/device-code paths these tests exercise.
+    fn unpinned_cfg() -> GrokComConfig {
+        GrokComConfig {
+            preferred_method: None,
+            ..GrokComConfig::default()
+        }
+    }
+
     fn auth_manager_with_grok_home(
         grok_home: &std::path::Path,
         proxy_base_url: &str,
     ) -> Arc<AuthManager> {
-        Arc::new(
-            AuthManager::new(grok_home, GrokComConfig::default())
-                .with_proxy_base_url(proxy_base_url),
-        )
+        Arc::new(AuthManager::new(grok_home, unpinned_cfg()).with_proxy_base_url(proxy_base_url))
     }
 
     #[test]
@@ -715,7 +722,7 @@ pub(crate) mod tests {
                 principal_id: Some("team-required".into()),
                 referrer: None,
             }),
-            ..GrokComConfig::default()
+            ..unpinned_cfg()
         };
         let temp_dir = tempfile::tempdir().unwrap();
         let grok_home = temp_dir.path().join(".grok");
@@ -747,7 +754,7 @@ pub(crate) mod tests {
                 "team-a".into(),
                 "team-b".into(),
             ])),
-            ..GrokComConfig::default()
+            ..unpinned_cfg()
         };
         assert_build_auth_rejected(
             cfg,
