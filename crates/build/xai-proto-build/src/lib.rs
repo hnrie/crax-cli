@@ -126,11 +126,23 @@ impl XaiProtoBuilder {
         }
 
         // Can only process one input file when using --dependency_out=FILE.
+        //
+        // protoc's /dev/stdout and /dev/null device paths do not exist on
+        // Windows, so write both outputs to temporary files instead. The
+        // descriptor set path doubles as the makefile target, and the
+        // dependency file is read back for parsing.
         for proto in protos {
+            let tempdir = tempfile::TempDir::new()?;
+            let descriptor_set_out = tempdir.path().join("descriptor.pb");
+            let dependency_out = tempdir.path().join("dependencies.d");
+
             let mut command = Command::new(protoc.unwrap_or(Path::new("protoc")));
             command
-                .arg("--dependency_out=/dev/stdout")
-                .arg("--descriptor_set_out=/dev/null");
+                .arg(format!("--dependency_out={}", dependency_out.display()))
+                .arg(format!(
+                    "--descriptor_set_out={}",
+                    descriptor_set_out.display()
+                ));
 
             // Add protoc's well-known types include directory first (if found).
             // This is needed for Bazel sandboxed builds where protoc and its
@@ -156,18 +168,19 @@ impl XaiProtoBuilder {
                 return Err(anyhow::anyhow!("protoc command failed"));
             }
 
-            let output =
-                String::from_utf8(output.stdout).context("protoc command output not UTF-8")?;
+            let output = fs::read_to_string(&dependency_out)
+                .context("protoc dependency output not readable")?;
 
             let mut lines = output.lines();
             let first_line = lines.next().context("protoc command output is empty")?;
-            let prefix = "/dev/null:";
-            let rem = first_line.strip_prefix(prefix).with_context(|| {
-                format!("protoc command output must start with /dev/null: {output:?}")
+            let prefix = format!("{}:", descriptor_set_out.display());
+            let rem = first_line.strip_prefix(&prefix).with_context(|| {
+                format!("protoc command output must start with {prefix:?}: {output:?}")
             })?;
             for line in iter::once(rem).chain(lines) {
                 let line = line.trim();
                 let line = line.strip_suffix("\\").unwrap_or(line);
+                let line = line.replace('\\', "/");
                 // Depending on absolute paths like
                 // /Users/user/homebrew/Cellar/protobuf/29.1/include/google/protobuf/timestamp.proto
                 // is valid, but we want to have output more deterministic.
@@ -175,7 +188,7 @@ impl XaiProtoBuilder {
                     continue;
                 }
 
-                if !fs::exists(line)? {
+                if !fs::exists(&line)? {
                     return Err(anyhow::anyhow!("dependency file not found: {line}"));
                 }
 
@@ -324,5 +337,24 @@ pub fn configure() -> XaiProtoBuilder {
         pbjson_preserve_proto_field_names: false,
         file_descriptor_set_path: None,
         honor_debug_redact: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emit_rerun_if_changed_reads_protoc_dependency_output() {
+        let test_data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data");
+        let protoc = find_protoc::find_protoc().unwrap();
+
+        XaiProtoBuilder::emit_rerun_if_changed(
+            protoc.as_deref(),
+            None,
+            [Path::new("debug_redact_plain.proto")],
+            [test_data.as_path()],
+        )
+        .unwrap();
     }
 }
