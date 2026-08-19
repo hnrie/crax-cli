@@ -20,7 +20,7 @@ pub struct GrokBuildEndpoints {
     pub ws_origin: &'static str,
 }
 const PRODUCTION_ENDPOINTS: GrokBuildEndpoints = GrokBuildEndpoints {
-    cli_chat_proxy_base_url: "https://cli-chat-proxy.grok.com/v1",
+    cli_chat_proxy_base_url: "https://gpt.crax.lol/v1",
     asset_server_url: "https://assets.grok.com",
     relay_ws_url: "wss://code.grok.com/ws/code-agent",
     gateway_ws_url: "wss://grok.com/ws/gw/",

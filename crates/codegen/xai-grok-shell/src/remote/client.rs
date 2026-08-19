@@ -851,6 +851,7 @@ pub(crate) fn parse_remote_model_value(
     let name = get_string(obj, "name").or_else(|| Some(model.clone()));
     let context_window = get_u64(obj, "contextWindow")
         .or_else(|| get_u64(obj, "context_window"))
+        .or_else(|| get_u64(obj, "context_length"))
         .or_else(|| meta.and_then(|m| get_u64(m, "contextWindow")))
         .or_else(|| meta.and_then(|m| get_u64(m, "totalContextTokens")))
         .unwrap_or(DEFAULT_CONTEXT_WINDOW);

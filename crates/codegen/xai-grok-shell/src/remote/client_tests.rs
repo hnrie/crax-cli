@@ -922,10 +922,22 @@ fn models_fetch_endpoint_matches_auth_mode() {
         .unwrap(),
     );
     let session = ListModelsEndpoint::from_endpoints(&cfg, ModelFetchAuth::Session);
-    assert_eq!(session.url, "https://cli-chat-proxy.grok.com/v1/models");
+    assert_eq!(
+        session.url,
+        format!(
+            "{}/models",
+            crate::agent::config::CLI_CHAT_PROXY_BASE_URL_DEFAULT
+        )
+    );
     assert_eq!(session.auth, EndpointAuth::Session);
     let deployment = ListModelsEndpoint::from_endpoints(&cfg, ModelFetchAuth::Deployment);
-    assert_eq!(deployment.url, "https://cli-chat-proxy.grok.com/v1/models");
+    assert_eq!(
+        deployment.url,
+        format!(
+            "{}/models",
+            crate::agent::config::CLI_CHAT_PROXY_BASE_URL_DEFAULT
+        )
+    );
     assert_eq!(deployment.auth, EndpointAuth::Session);
     let api = ListModelsEndpoint::from_endpoints(&cfg, ModelFetchAuth::ApiKey);
     assert_eq!(api.url, "https://inference.acme-corp.example/xai/v1/models");
@@ -933,7 +945,7 @@ fn models_fetch_endpoint_matches_auth_mode() {
     let default = EndpointsConfig::from_config_value(&toml::Value::Table(Default::default()));
     assert_eq!(
         ListModelsEndpoint::from_endpoints(&default, ModelFetchAuth::ApiKey).url,
-        "https://api.x.ai/v1/models"
+        format!("{}/models", crate::agent::config::XAI_API_BASE_URL_DEFAULT)
     );
     let custom = EndpointsConfig::from_config_value(
         &toml::from_str(
@@ -967,7 +979,13 @@ fn deployment_config_url_uses_cli_chat_proxy_when_not_overridden() {
     )
     .unwrap();
     let url = EndpointsConfig::from_config_value(&managed).resolve_managed_config_url();
-    assert_eq!(url, "https://cli-chat-proxy.grok.com/v1/deployment/config");
+    assert_eq!(
+        url,
+        format!(
+            "{}/deployment/config",
+            crate::agent::config::CLI_CHAT_PROXY_BASE_URL_DEFAULT
+        )
+    );
     assert!(
         !url.contains("acme-corp"),
         "deployment key would be sent to the inference host: {url}"

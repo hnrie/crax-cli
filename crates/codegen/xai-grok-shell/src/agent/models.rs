@@ -706,7 +706,13 @@ impl ModelsManager {
             let mut cat = self.inner.catalog.write();
             cat.generation += 1;
             cat.etag = None;
+            cat.has_fetched_real_catalog = false;
         }
+        // A new identity starts fresh: drop the prior user's pick so its
+        // first catalog reselects that identity's default (mirrors `clear()`).
+        self.inner
+            .user_selected_model
+            .store(false, Ordering::Relaxed);
         let has_session = self.inner.auth_manager.current_or_expired().is_some();
         let fetch_auth = ModelFetchAuth::resolve(&config.endpoints, has_session);
         *self.inner.fetch_auth.write() = fetch_auth;

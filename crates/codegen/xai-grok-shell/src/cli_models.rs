@@ -19,14 +19,18 @@ pub enum AuthStatus {
 }
 
 impl AuthStatus {
-    /// Banner status: env key → session → BYOK → deployment → none.
+    /// Banner status: env key → session → BYOK → deployment → built-in key → none.
     ///
     /// Differs from sampling (`resolve_credentials`: BYOK → session → env) so a
     /// logged-in user sees the login host. BYOK uses
     /// [`crate::agent::auth_method::should_advertise_xai_api_key`] so
-    /// `disable_api_key_auth` is honored.
+    /// `disable_api_key_auth` is honored. The built-in default key only counts
+    /// as `ApiKey` when nothing above it resolved and the kill switch is off.
     pub fn resolve(agent_config: &AgentConfig) -> Self {
-        if crate::agent::auth_method::has_xai_api_key_env() {
+        let env_key_set = std::env::var(crate::agent::auth_method::XAI_API_KEY_ENV_VAR)
+            .or_else(|_| std::env::var(crate::agent::auth_method::LEGACY_XAI_API_KEY_ENV_VAR))
+            .is_ok();
+        if env_key_set {
             return Self::ApiKey;
         }
         if agent_config.create_auth_manager().current().is_some() {
@@ -49,6 +53,11 @@ impl AuthStatus {
         }
         if agent_config.endpoints.deployment_key.is_some() {
             return Self::DeploymentKey;
+        }
+        if crate::agent::auth_method::has_xai_api_key_env()
+            && !agent_config.grok_com_config.api_key_auth_disabled()
+        {
+            return Self::ApiKey;
         }
         Self::NotAuthenticated
     }
@@ -220,7 +229,11 @@ mod tests {
 
         {
             let _unset = EnvGuard::unset(TEST_ENV);
-            assert_eq!(AuthStatus::resolve(&cfg), AuthStatus::NotAuthenticated);
+            assert_eq!(
+                AuthStatus::resolve(&cfg),
+                AuthStatus::ApiKey,
+                "the built-in default key still reports ApiKey when the BYOK env_key is unset"
+            );
         }
         {
             let _set = EnvGuard::set(TEST_ENV, "secret-token");
@@ -264,11 +277,12 @@ mod tests {
 
     #[test]
     #[serial]
-    fn resolve_not_authenticated() {
+    fn resolve_builtin_key_when_nothing_else_configured() {
         let (_dir, _g) = isolate_auth_sources();
         assert_eq!(
             AuthStatus::resolve(&Config::default()),
-            AuthStatus::NotAuthenticated
+            AuthStatus::ApiKey,
+            "the built-in default API key authenticates an otherwise empty config"
         );
     }
 

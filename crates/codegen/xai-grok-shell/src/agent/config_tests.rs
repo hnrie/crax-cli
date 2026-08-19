@@ -508,7 +508,7 @@ fn session_resolver_is_not_stamped_onto_third_party_samplers() {
         "a third-party endpoint must keep its resolved credential"
     );
     let mut first_party = SamplerConfig {
-        base_url: EndpointsConfig::default().resolve_inference_base_url(),
+        base_url: "https://api.x.ai/v1".into(),
         ..SamplerConfig::default()
     };
     stamp_session_local_sampler_fields(&mut first_party, &session_cfg, None, None);
@@ -1678,7 +1678,8 @@ fn user_override_adds_api_key_to_default_model() {
     assert_eq!(model.api_key, Some("user-custom-api-key".to_string()));
     assert_eq!(model.info.model, dm);
     assert_eq!(
-        model.info.base_url, "https://cli-chat-proxy.grok.com/v1",
+        model.info.base_url,
+        crate::agent::config::CLI_CHAT_PROXY_BASE_URL_DEFAULT,
         "base_url should inherit from default, not be stale"
     );
 }
@@ -3157,8 +3158,9 @@ fn e2e_default_model_with_session_routes_to_proxy() {
     let sampling = resolve_sampling(model, Some("session-token-123"));
     assert_eq!(sampling.api_key.as_deref(), Some("session-token-123"));
     assert_eq!(
-        sampling.base_url, "https://cli-chat-proxy.grok.com/v1",
-        "session auth should route to cli-chat-proxy, not api.x.ai"
+        sampling.base_url,
+        crate::agent::config::CLI_CHAT_PROXY_BASE_URL_DEFAULT,
+        "session auth should route to the default proxy, not api.x.ai"
     );
 }
 #[test]
@@ -3172,8 +3174,9 @@ fn e2e_default_model_with_external_api_key_routes_to_api_xai() {
     let sampling = resolve_sampling(model, None);
     assert_eq!(sampling.api_key.as_deref(), Some("xai-external-key"));
     assert_eq!(
-        sampling.base_url, "https://api.x.ai/v1",
-        "external API key should route to api.x.ai via api_base_url"
+        sampling.base_url,
+        crate::agent::config::XAI_API_BASE_URL_DEFAULT,
+        "external API key should route to the default inference API via api_base_url"
     );
     unsafe { std::env::remove_var("XAI_API_KEY") };
 }
@@ -3260,9 +3263,14 @@ fn e2e_credential_priority_model_key_beats_session_beats_env() {
     );
     unsafe { std::env::remove_var("XAI_API_KEY") };
     let sampling = resolve_sampling(&model_no_key, None);
-    assert!(
-        sampling.api_key.is_none(),
-        "no credentials available → api_key should be None"
+    assert_eq!(
+        sampling.api_key.as_deref(),
+        Some(crate::agent::auth_method::DEFAULT_XAI_API_KEY),
+        "no explicit credentials → the built-in default key applies"
+    );
+    assert_eq!(
+        sampling.base_url, "https://api.x.ai/v1",
+        "default key should route to api_base_url"
     );
 }
 #[test]
@@ -3297,7 +3305,10 @@ fn e2e_duplicate_model_field_both_entries_survive() {
     assert_eq!(sampling.base_url, "https://inference.example.com/v1");
     let sampling = resolve_sampling(default, Some("session-key"));
     assert_eq!(sampling.api_key.as_deref(), Some("session-key"));
-    assert_eq!(sampling.base_url, "https://cli-chat-proxy.grok.com/v1",);
+    assert_eq!(
+        sampling.base_url,
+        crate::agent::config::CLI_CHAT_PROXY_BASE_URL_DEFAULT,
+    );
 }
 #[test]
 fn e2e_enterprise_custom_endpoint_skips_xai_defaults() {

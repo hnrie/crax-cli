@@ -715,7 +715,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn forbidden_subscription_error_no_hint_without_api_key() {
+    fn forbidden_subscription_error_hint_with_builtin_key() {
         with_api_key_env(None, || {
             let err = SamplingError::Api {
                 status: StatusCode::FORBIDDEN,
@@ -729,8 +729,8 @@ mod tests {
             let data = acp_err.data.unwrap();
             let msg = data.as_str().unwrap();
             assert!(
-                !msg.contains("grok logout"),
-                "should NOT suggest logout when no API key is available: {msg}"
+                msg.contains("grok logout"),
+                "the built-in default API key makes the logout hint available: {msg}"
             );
         });
     }
