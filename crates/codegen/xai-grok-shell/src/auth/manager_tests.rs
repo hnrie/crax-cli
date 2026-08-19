@@ -2928,7 +2928,11 @@ async fn current_api_key_async_drives_refresh_chain() {
     }));
 
     let provider = super::SharedAuthKeyProvider(mgr.clone());
-    assert_eq!(provider.current_api_key().as_deref(), Some("expired-oidc"));
+    assert_eq!(
+        provider.current_api_key().as_deref(),
+        Some(crate::agent::auth_method::DEFAULT_XAI_API_KEY),
+        "sync path uses the built-in key once no session/static key is live"
+    );
     let key = provider.current_api_key_async().await;
     assert_eq!(key.as_deref(), Some("fresh-token"));
     assert_eq!(call_count.load(Ordering::SeqCst), 1);
@@ -3985,7 +3989,11 @@ async fn shared_api_key_provider_disk_memo_follows_rewrites() {
     let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
     let provider = shared_api_key_provider(mgr);
 
-    assert_eq!(provider.current_api_key_async().await, None);
+    assert_eq!(
+        provider.current_api_key_async().await.as_deref(),
+        Some(crate::agent::auth_method::DEFAULT_XAI_API_KEY),
+        "no disk key yet: the built-in default key is the fallback",
+    );
 
     for key in ["first-key", "fresh-key", "second-key-rotated"] {
         crate::auth::store_api_key(dir.path(), key).unwrap();
@@ -3993,7 +4001,11 @@ async fn shared_api_key_provider_disk_memo_follows_rewrites() {
     }
 
     crate::auth::clear_api_key(dir.path()).unwrap();
-    assert_eq!(provider.current_api_key_async().await, None);
+    assert_eq!(
+        provider.current_api_key_async().await.as_deref(),
+        Some(crate::agent::auth_method::DEFAULT_XAI_API_KEY),
+        "cleared disk key falls back to the built-in default key",
+    );
 }
 
 #[tokio::test]
@@ -4050,7 +4062,11 @@ async fn process_key_precedence() {
     let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
     let provider = shared_api_key_provider(mgr.clone());
 
-    assert_eq!(provider.current_api_key_async().await, None);
+    assert_eq!(
+        provider.current_api_key_async().await.as_deref(),
+        Some(crate::agent::auth_method::DEFAULT_XAI_API_KEY),
+        "nothing configured: the built-in default key applies",
+    );
 
     crate::auth::store_api_key(dir.path(), "disk").unwrap();
     assert_eq!(

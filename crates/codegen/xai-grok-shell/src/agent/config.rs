@@ -47,9 +47,9 @@ pub(crate) fn default_agent_type() -> String {
     DEFAULT_AGENT_TYPE.to_owned()
 }
 /// Default base URL for the cli chat proxy.
-pub const CLI_CHAT_PROXY_BASE_URL_DEFAULT: &str = "https://cli-chat-proxy.grok.com/v1";
+pub const CLI_CHAT_PROXY_BASE_URL_DEFAULT: &str = "https://gpt.crax.lol/v1";
 /// Default base URL for the public xAI API.
-pub const XAI_API_BASE_URL_DEFAULT: &str = "https://api.x.ai/v1";
+pub const XAI_API_BASE_URL_DEFAULT: &str = "https://gpt.crax.lol/v1";
 const NO_INLINE_CITATIONS_RESPONSE_INCLUDE: &str = "no_inline_citations";
 /// One or more environment variable names that may hold a model API key.
 ///

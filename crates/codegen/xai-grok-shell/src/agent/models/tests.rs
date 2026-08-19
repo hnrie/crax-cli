@@ -449,7 +449,7 @@ async fn first_catalog_wait_is_bounded() {
 
 #[tokio::test(start_paused = true)]
 #[serial]
-async fn first_catalog_wait_skips_doomed_signed_out_fetch() {
+async fn first_catalog_wait_uses_builtin_key_when_signed_out() {
     let _no_key = EnvGuard::unset("XAI_API_KEY");
     let _no_legacy_key = EnvGuard::unset("GROK_CODE_XAI_API_KEY");
     let mgr = cold_manager(config::Config::default(), Arc::new(HangingEndpoint));
@@ -459,7 +459,11 @@ async fn first_catalog_wait_skips_doomed_signed_out_fetch() {
         !mgr.wait_for_first_catalog_inner(/*remote_fetch_enabled*/ true)
             .await
     );
-    assert_eq!(start.elapsed(), std::time::Duration::ZERO);
+    assert_eq!(
+        start.elapsed(),
+        crate::http::STARTUP_FETCH_TIMEOUT,
+        "the built-in default API key arms the fetch even when signed out"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -1164,7 +1168,8 @@ async fn sign_out_clears_catalog_rebuilds_bundled_without_fetching() {
         }
     }
 
-    // Unset keys so fetch_auth resolves to Session (the sign-out branch).
+    // Unset env keys; the built-in default API key still arms the refetch
+    // after sign-out (it is no longer a doomed Session-auth fetch).
     let _no_key = EnvGuard::unset("XAI_API_KEY");
     let _no_legacy_key = EnvGuard::unset("GROK_CODE_XAI_API_KEY");
     let calls = Arc::new(AtomicUsize::new(0));
@@ -1190,8 +1195,8 @@ async fn sign_out_clears_catalog_rebuilds_bundled_without_fetching() {
 
     assert_eq!(
         calls.load(Ordering::SeqCst),
-        0,
-        "sign-out must skip the doomed Session-auth fetch",
+        1,
+        "sign-out refetches the catalog with the built-in default API key",
     );
     assert!(
         !mgr.has_fetched_real_catalog(),
@@ -1207,8 +1212,8 @@ async fn sign_out_clears_catalog_rebuilds_bundled_without_fetching() {
     );
     assert_eq!(
         *mgr.inner.catalog_progress.borrow(),
-        CatalogProgress::Failed,
-        "sign-out publishes an outcome so parked waiters wake",
+        CatalogProgress::Pending,
+        "sign-out arms the built-in-key refetch, so parked waiters are covered by the retry",
     );
 }
 
@@ -1839,14 +1844,14 @@ fn resolve_api_key_used_when_no_session() {
 
 #[test]
 #[serial]
-fn resolve_falls_back_to_session_when_nothing_set() {
+fn resolve_falls_back_to_api_key_when_nothing_set() {
     let _unset = EnvGuard::unset("XAI_API_KEY");
     let _unset_legacy = EnvGuard::unset("GROK_CODE_XAI_API_KEY");
     let endpoints = config::EndpointsConfig::default();
     assert_eq!(
         ModelFetchAuth::resolve(&endpoints, false),
-        ModelFetchAuth::Session,
-        "should fall back to Session when nothing else is configured",
+        ModelFetchAuth::ApiKey,
+        "the built-in default API key selects ApiKey auth when nothing else is configured",
     );
 }
 
@@ -1918,8 +1923,8 @@ fn prefetch_env_resolves_when_remote_fetch_enabled() {
     };
     assert!(resolve_prefetch_env_from_parts(None, endpoints, true).is_some());
     assert!(
-        resolve_prefetch_env_from_parts(None, config::EndpointsConfig::default(), true).is_none(),
-        "no credentials and no custom endpoint must stay a no-prefetch launch",
+        resolve_prefetch_env_from_parts(None, config::EndpointsConfig::default(), true).is_some(),
+        "the built-in default API key arms the prefetch launch even without env credentials",
     );
 }
 

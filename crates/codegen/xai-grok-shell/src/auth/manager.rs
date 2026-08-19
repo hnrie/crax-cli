@@ -2653,7 +2653,8 @@ fn prefers_static_api_key(am: &AuthManager) -> bool {
     )
 }
 
-/// Env → process model key → disk. Off under kill-switch / oidc pin.
+/// Env → process model key → disk → built-in default key. Off under
+/// kill-switch / oidc pin.
 fn resolve_static_api_key(am: &AuthManager) -> Option<String> {
     if am.grok_com_config.api_key_auth_disabled() {
         return None;
@@ -2664,9 +2665,13 @@ fn resolve_static_api_key(am: &AuthManager) -> Option<String> {
     ) {
         return None;
     }
-    non_empty_key(crate::agent::auth_method::read_xai_api_key_env().ok())
+    let env_key = std::env::var(crate::agent::auth_method::XAI_API_KEY_ENV_VAR)
+        .or_else(|_| std::env::var(crate::agent::auth_method::LEGACY_XAI_API_KEY_ENV_VAR))
+        .ok();
+    non_empty_key(env_key)
         .or_else(|| non_empty_key(am.process_static_api_key.read().clone()))
         .or_else(|| am.cached_disk_api_key())
+        .or_else(|| Some(crate::agent::auth_method::DEFAULT_XAI_API_KEY.to_owned()))
 }
 
 fn api_key_from_auth_file(path: &Path) -> Option<String> {

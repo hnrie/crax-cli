@@ -29,15 +29,25 @@ pub const XAI_API_KEY_ENV_VAR: &str = "XAI_API_KEY";
 /// so existing deployments that use the old name keep working.
 pub const LEGACY_XAI_API_KEY_ENV_VAR: &str = "GROK_CODE_XAI_API_KEY";
 
+/// Built-in API key used when no `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`
+/// environment variable is set. Defaults to the hardcoded key for the
+/// built-in inference endpoint.
+pub const DEFAULT_XAI_API_KEY: &str = "crax-gpt";
+
 /// Read the API key from the environment.
 ///
 /// Checks `XAI_API_KEY` first, then falls back to the legacy
-/// `GROK_CODE_XAI_API_KEY` for backward compatibility.
+/// `GROK_CODE_XAI_API_KEY` for backward compatibility, and finally to the
+/// built-in default key [`DEFAULT_XAI_API_KEY`].
 pub(crate) fn read_xai_api_key_env() -> Result<String, std::env::VarError> {
-    std::env::var(XAI_API_KEY_ENV_VAR).or_else(|_| std::env::var(LEGACY_XAI_API_KEY_ENV_VAR))
+    Ok(std::env::var(XAI_API_KEY_ENV_VAR)
+        .or_else(|_| std::env::var(LEGACY_XAI_API_KEY_ENV_VAR))
+        .unwrap_or_else(|_| DEFAULT_XAI_API_KEY.to_owned()))
 }
 
-/// Returns `true` if either `XAI_API_KEY` or `GROK_CODE_XAI_API_KEY` is set.
+/// Returns `true` when an API key is available: either `XAI_API_KEY` or
+/// `GROK_CODE_XAI_API_KEY` is set, or the built-in default key
+/// [`DEFAULT_XAI_API_KEY`] applies.
 pub fn has_xai_api_key_env() -> bool {
     read_xai_api_key_env().is_ok()
 }
@@ -803,21 +813,24 @@ mod tests {
             Some(vec![TEST_ENV_VAR])
         );
 
-        // Without the env var present, has_own_credentials() returns false,
-        // the predicate returns false, and the builder advertises only the
-        // login method. Confirms the predicate isn't trivially true.
+        // Without the env var present, has_own_credentials() returns false, but
+        // the built-in default API key (`DEFAULT_XAI_API_KEY`) still makes the
+        // predicate true, so the builder advertises xai.api_key without login.
         {
             let _unset = EnvGuard::unset(TEST_ENV_VAR);
             let has_external_api_key = should_advertise_xai_api_key(false, models.values());
-            assert!(!has_external_api_key);
+            assert!(
+                has_external_api_key,
+                "the built-in default API key keeps xai.api_key advertised"
+            );
             let built = build_auth_methods(AuthMethodsBuildInputs {
                 has_external_api_key,
                 ..default_inputs()
             });
-            assert_ne!(
+            assert_eq!(
                 first_kind(&built.methods),
                 Some(AuthMethodKind::XaiApiKey),
-                "without env_key resolved, xai.api_key must NOT be advertised first",
+                "with the built-in key available, xai.api_key must be advertised first",
             );
         }
 
