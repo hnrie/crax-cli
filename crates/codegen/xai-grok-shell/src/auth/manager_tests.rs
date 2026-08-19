@@ -7,6 +7,20 @@ use crate::auth::error::RefreshTokenError;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
+/// Config with no `preferred_method` pin, so multi-method fallthrough applies.
+///
+/// The shipped default pins `PreferredAuthMethod::ApiKey`, which fails closed on
+/// automatic OIDC (devbox mint, silent session recovery) and makes static keys
+/// win over sessions. Tests that exercise session/refresh/team-pin behavior need
+/// the unpinned semantics, so they build their config from this instead of
+/// `GrokComConfig::default()`.
+fn unpinned_cfg() -> GrokComConfig {
+    GrokComConfig {
+        preferred_method: None,
+        ..GrokComConfig::default()
+    }
+}
+
 fn make_auth(expires_at: Option<DateTime<Utc>>, create_time: DateTime<Utc>) -> GrokAuth {
     GrokAuth {
         auth_mode: AuthMode::External,
@@ -2913,7 +2927,7 @@ async fn current_api_key_async_drives_refresh_chain() {
     let _xai = EnvGuard::unset("XAI_API_KEY");
     let _legacy = EnvGuard::unset("GROK_CODE_XAI_API_KEY");
     let dir = tempfile::tempdir().unwrap();
-    let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
+    let mgr = Arc::new(AuthManager::new(dir.path(), unpinned_cfg()));
     mgr.hot_swap(GrokAuth {
         key: "expired-oidc".into(),
         auth_mode: AuthMode::Oidc,
@@ -3398,7 +3412,7 @@ fn pinned_cfg(team: &str) -> GrokComConfig {
         force_login_team_uuid: Some(crate::auth::config::ForceLoginTeam::Single(
             team.to_string(),
         )),
-        ..GrokComConfig::default()
+        ..unpinned_cfg()
     }
 }
 
@@ -3495,7 +3509,7 @@ async fn auth_accepts_matching_team_cached_token() {
 #[tokio::test]
 async fn no_pin_accepts_any_team_cached_token() {
     let dir = tempfile::tempdir().unwrap();
-    let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
+    let mgr = Arc::new(AuthManager::new(dir.path(), unpinned_cfg()));
     let tok = oidc_session_for_team("team-anything");
     mgr.hot_swap(tok.clone());
 
@@ -3767,7 +3781,7 @@ async fn cached_api_key_session_rejected_when_api_key_auth_disabled() {
 #[tokio::test]
 async fn shared_api_key_provider_resolves_live_bearer() {
     let dir = tempfile::tempdir().unwrap();
-    let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
+    let mgr = Arc::new(AuthManager::new(dir.path(), unpinned_cfg()));
     let auth = GrokAuth {
         key: "shared-provider-token".into(),
         expires_at: Some(Utc::now() + Duration::hours(1)),
@@ -3815,7 +3829,7 @@ async fn shared_api_key_provider_static_fallthrough() {
     use xai_grok_test_support::EnvGuard;
 
     let dir = tempfile::tempdir().unwrap();
-    let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
+    let mgr = Arc::new(AuthManager::new(dir.path(), unpinned_cfg()));
     let provider = shared_api_key_provider(mgr.clone());
 
     {
@@ -3963,7 +3977,7 @@ async fn shared_api_key_provider_sync_buffered_session_beats_static() {
     let _legacy = EnvGuard::unset("GROK_CODE_XAI_API_KEY");
     let _key = EnvGuard::set("XAI_API_KEY", "leftover-static");
     let dir = tempfile::tempdir().unwrap();
-    let mgr = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
+    let mgr = Arc::new(AuthManager::new(dir.path(), unpinned_cfg()));
     // Two minutes out: inside the 5-minute buffer, but accepted on the wire.
     mgr.hot_swap(GrokAuth {
         key: "buffered-oidc".into(),
@@ -5050,7 +5064,9 @@ fn proactive_failure_backoff_shape() {
 /// Seed a credential that is locally valid but that the caller has been told
 /// the server rejects — the shape that made the double-check lie.
 fn devbox_manager(dir: &std::path::Path, key: &str) -> Arc<AuthManager> {
-    let mgr = Arc::new(AuthManager::new(dir, GrokComConfig::default()));
+    // Devbox recovery is an automatic OIDC path, which the shipped
+    // `preferred_method=api_key` default fails closed on.
+    let mgr = Arc::new(AuthManager::new(dir, unpinned_cfg()));
     mgr.set_devbox_env_for_test(true);
     mgr.hot_swap(GrokAuth {
         key: key.into(),

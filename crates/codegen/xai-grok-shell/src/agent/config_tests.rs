@@ -1,6 +1,35 @@
 use super::*;
 use serial_test::serial;
 use xai_grok_test_support::EnvGuard;
+
+/// This build pins API-key auth so the built-in key is the only supported path:
+/// automatic OIDC (browser login, devbox mint, external provider) must not run,
+/// and the first-party key probe must be skipped.
+///
+/// Guards the real load path, not bare deserialization. `preferred_method` has a
+/// field-level `#[serde(default)]`, so `toml::from_str::<GrokComConfig>("")`
+/// yields `None`; the pin survives only because `new_from_toml_cfg` merges user
+/// TOML over a serialized `Self::default()`. An explicit opt-out still wins.
+#[test]
+fn preferred_method_defaults_to_api_key_and_honors_explicit_override() {
+    let cfg = Config::new_from_toml_cfg(&toml::from_str("").expect("parse empty")).expect("config");
+    assert_eq!(
+        cfg.grok_com_config.preferred_method,
+        Some(crate::auth::PreferredAuthMethod::ApiKey),
+        "the built-in key build must pin API-key auth by default"
+    );
+
+    let cfg = Config::new_from_toml_cfg(
+        &toml::from_str("[auth]\npreferred_method = \"oidc\"\n").expect("parse oidc"),
+    )
+    .expect("config");
+    assert_eq!(
+        cfg.grok_com_config.preferred_method,
+        Some(crate::auth::PreferredAuthMethod::Oidc),
+        "an explicit config opt-out must still win over the shipped default"
+    );
+}
+
 #[test]
 fn main_cli_tools_override_preserves_profile_injection_policy() {
     let overrides = CliAgentOverrides {

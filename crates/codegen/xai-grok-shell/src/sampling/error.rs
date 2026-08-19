@@ -131,17 +131,10 @@ pub(crate) fn map_sampling_err_to_acp(err: SamplingError) -> acp::Error {
             // explanation visible to the user without triggering the client's
             // re-auth flow on -32000.
             StatusCode::FORBIDDEN => {
-                let message = if message.contains("requires a Grok subscription")
-                    && crate::agent::auth_method::has_xai_api_key_env()
-                {
-                    format!(
-                        "{message}\n\nYou have an API key set (XAI_API_KEY). \
-                         Your cached OAuth session is being used instead. \
-                         To use your API key, run `grok logout` or type /logout in the TUI."
-                    )
-                } else {
-                    message
-                };
+                // No API-key-vs-session hint here: this build pins API-key auth,
+                // so a cached session is never used in preference to the key and
+                // advising `grok logout` would not change which credential is sent.
+                //
                 // 403 is content-safety, never auth: on this setup path it stays
                 // `internal_error` → `server_error`.
                 acp::Error::internal_error().data(message)
@@ -687,52 +680,35 @@ mod tests {
         }
     }
 
+    /// This build pins API-key auth, so a cached session never wins over the
+    /// key and `grok logout` would not change the credential that is sent. The
+    /// 403 body must pass through verbatim, with or without an env key set.
     #[test]
     #[serial_test::serial]
-    fn forbidden_subscription_error_includes_api_key_hint_when_env_set() {
-        with_api_key_env(Some("xai-test"), || {
-            let err = SamplingError::Api {
-                status: StatusCode::FORBIDDEN,
-                message: "The model 'grok-build' requires a Grok subscription.".into(),
-                model_metadata: None,
-                retry_after_secs: None,
-                should_retry: None,
-                error_code: None,
-            };
-            let acp_err = map_sampling_err_to_acp(err);
-            let data = acp_err.data.unwrap();
-            let msg = data.as_str().unwrap();
-            assert!(
-                msg.contains("grok logout"),
-                "should suggest grok logout when API key is available: {msg}"
-            );
-            assert!(
-                msg.contains("/logout"),
-                "should mention /logout TUI command: {msg}"
-            );
-        });
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn forbidden_subscription_error_hint_with_builtin_key() {
-        with_api_key_env(None, || {
-            let err = SamplingError::Api {
-                status: StatusCode::FORBIDDEN,
-                message: "The model 'grok-build' requires a Grok subscription.".into(),
-                model_metadata: None,
-                retry_after_secs: None,
-                should_retry: None,
-                error_code: None,
-            };
-            let acp_err = map_sampling_err_to_acp(err);
-            let data = acp_err.data.unwrap();
-            let msg = data.as_str().unwrap();
-            assert!(
-                msg.contains("grok logout"),
-                "the built-in default API key makes the logout hint available: {msg}"
-            );
-        });
+    fn forbidden_subscription_error_passes_through_without_logout_hint() {
+        for env_key in [Some("xai-test"), None] {
+            with_api_key_env(env_key, || {
+                let err = SamplingError::Api {
+                    status: StatusCode::FORBIDDEN,
+                    message: "The model 'grok-build' requires a Grok subscription.".into(),
+                    model_metadata: None,
+                    retry_after_secs: None,
+                    should_retry: None,
+                    error_code: None,
+                };
+                let acp_err = map_sampling_err_to_acp(err);
+                let data = acp_err.data.unwrap();
+                let msg = data.as_str().unwrap();
+                assert_eq!(
+                    msg, "The model 'grok-build' requires a Grok subscription.",
+                    "the proxy message must pass through unmodified"
+                );
+                assert!(
+                    !msg.contains("grok logout") && !msg.contains("/logout"),
+                    "API-key auth is pinned, so a logout hint is misleading: {msg}"
+                );
+            });
+        }
     }
 
     #[test]

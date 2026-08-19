@@ -573,9 +573,19 @@ mod tests {
         }
     }
 
+    /// Config with no `preferred_method` pin, so multi-method fallthrough
+    /// applies. The shipped default pins `PreferredAuthMethod::ApiKey`, which
+    /// fails closed on the automatic OIDC recovery these tests exercise.
+    fn unpinned_cfg() -> GrokComConfig {
+        GrokComConfig {
+            preferred_method: None,
+            ..GrokComConfig::default()
+        }
+    }
+
     fn mgr() -> (tempfile::TempDir, Arc<AuthManager>) {
         let dir = tempfile::tempdir().unwrap();
-        let m = Arc::new(AuthManager::new(dir.path(), GrokComConfig::default()));
+        let m = Arc::new(AuthManager::new(dir.path(), unpinned_cfg()));
         (dir, m)
     }
 
@@ -748,7 +758,7 @@ mod tests {
             force_login_team_uuid: Some(crate::auth::config::ForceLoginTeam::Single(
                 "team-good".into(),
             )),
-            ..GrokComConfig::default()
+            ..unpinned_cfg()
         };
         let m = Arc::new(AuthManager::new(dir.path(), cfg));
         m.hot_swap(GrokAuth {
@@ -1112,7 +1122,7 @@ mod tests {
             force_login_team_uuid: Some(crate::auth::config::ForceLoginTeam::Single(
                 "team-good".into(),
             )),
-            ..GrokComConfig::default()
+            ..unpinned_cfg()
         };
         let scope = cfg.auth_scope();
         let m = Arc::new(AuthManager::new(dir.path(), cfg));

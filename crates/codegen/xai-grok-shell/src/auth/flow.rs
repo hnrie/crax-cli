@@ -902,6 +902,21 @@ pub async fn ensure_authenticated_with_override(
     let grok_home = grok_home::grok_home();
     let auth_manager = Arc::new(AuthManager::new(&grok_home, grok_com_config.clone()));
 
+    // Static API key short-circuit. Callers on this path (`grok workspace`,
+    // remote session restore, trace upload) only need a bearer token, and this
+    // build authenticates with a built-in key rather than an xAI session. Without
+    // this, those paths fall through to `run_auth_flow` and either open a browser
+    // or fail closed under `preferred_method=api_key`.
+    //
+    // Yields to explicit operator opt-ins to a real session credential; see
+    // `GrokComConfig::allows_static_key_short_circuit`.
+    if !reauth
+        && grok_com_config.allows_static_key_short_circuit()
+        && let Some(key) = auth_manager.static_api_key_for_export()
+    {
+        return Ok(GrokAuth::from_api_key(key));
+    }
+
     // If not re-authing, accept any valid non-WebLogin credential.
     // WebLogin tokens are always skipped — they must be migrated to OIDC.
     if !reauth && let Some(auth) = auth_manager.current() {
@@ -1328,7 +1343,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cfg = GrokComConfig {
             auth_provider_command: Some("printf '%s' xai-ext-token".to_string()),
-            ..GrokComConfig::default()
+            ..unpinned_cfg()
         };
         let mgr = Arc::new(
             AuthManager::new(dir.path(), cfg.clone()).with_proxy_base_url(&dead_proxy_url()),
@@ -1859,10 +1874,21 @@ mod tests {
         .unwrap()
     }
 
+    /// Config with no `preferred_method` pin, so multi-method fallthrough
+    /// applies. The shipped default pins `PreferredAuthMethod::ApiKey`, which
+    /// fails closed on automatic OIDC and the external auth provider; session
+    /// and provider tests need the unpinned semantics.
+    fn unpinned_cfg() -> GrokComConfig {
+        GrokComConfig {
+            preferred_method: None,
+            ..GrokComConfig::default()
+        }
+    }
+
     fn pinned_cfg(team: &str) -> GrokComConfig {
         GrokComConfig {
             force_login_team_uuid: Some(crate::auth::config::ForceLoginTeam::Single(team.into())),
-            ..GrokComConfig::default()
+            ..unpinned_cfg()
         }
     }
 

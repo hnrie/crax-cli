@@ -198,6 +198,22 @@ impl GrokComConfig {
     pub(crate) fn blocks_automatic_oidc(&self) -> bool {
         matches!(self.preferred_method, Some(PreferredAuthMethod::ApiKey))
     }
+    /// Whether a resolved static API key may satisfy `ensure_authenticated`
+    /// outright, skipping the session login flow.
+    ///
+    /// This build ships a built-in key, so the short-circuit is the normal path.
+    /// It yields to an explicit operator opt-in to a real session credential:
+    /// `auth_provider_command` (a binary that mints one) and `oidc` (an
+    /// enterprise IdP). Both are only ever set deliberately, so silently
+    /// pre-empting them with the built-in key would break those deployments.
+    ///
+    /// `oauth2` is deliberately NOT consulted: [`Default`] always populates it
+    /// with the built-in xAI provider, so gating on it would disable the
+    /// short-circuit everywhere. The kill switch and `preferred_method = oidc`
+    /// are enforced separately, inside static-key resolution itself.
+    pub(crate) fn allows_static_key_short_circuit(&self) -> bool {
+        self.auth_provider_command.is_none() && self.oidc.is_none()
+    }
     /// The auth.json scope key for this config.
     pub fn auth_scope(&self) -> String {
         if let Some(ref oidc) = self.oidc {
@@ -286,7 +302,12 @@ impl Default for GrokComConfig {
                 .ok()
                 .map(|v| env_flag_enabled(&v)),
             force_login_team_uuid: None,
-            preferred_method: None,
+            // This build ships a built-in inference key, so API-key auth is the
+            // only supported path. Pinning it here is fail-closed: automatic
+            // OIDC (interactive browser login, devbox mint, external provider)
+            // never runs, and the first-party key probe is skipped. An explicit
+            // `[auth] preferred_method` in config.toml still overrides this.
+            preferred_method: Some(PreferredAuthMethod::ApiKey),
         }
     }
 }
@@ -469,6 +490,45 @@ mod tests {
             ]
         );
     }
+    /// The built-in key must not silently pre-empt an explicit operator opt-in
+    /// to a real session credential. `oauth2` is excluded on purpose: `Default`
+    /// always populates it, so gating on it would disable the short-circuit
+    /// everywhere.
+    #[test]
+    fn static_key_short_circuit_yields_to_explicit_session_opt_ins() {
+        assert!(
+            GrokComConfig::default().allows_static_key_short_circuit(),
+            "the built-in key is the normal path when nothing else is configured"
+        );
+        assert!(
+            GrokComConfig::default().oauth2.is_some(),
+            "precondition: oauth2 is always defaulted, so it cannot be a discriminator"
+        );
+
+        let with_provider = GrokComConfig {
+            auth_provider_command: Some("mint-token".into()),
+            ..GrokComConfig::default()
+        };
+        assert!(
+            !with_provider.allows_static_key_short_circuit(),
+            "an operator-configured auth provider must still run"
+        );
+
+        let with_oidc = GrokComConfig {
+            oidc: Some(OidcAuthConfig {
+                issuer: "https://idp.example.com".into(),
+                client_id: "client".into(),
+                scopes: default_oidc_scopes(),
+                audience: None,
+            }),
+            ..GrokComConfig::default()
+        };
+        assert!(
+            !with_oidc.allows_static_key_short_circuit(),
+            "an enterprise IdP must not be pre-empted by the built-in key"
+        );
+    }
+
     #[test]
     fn preferred_method_deserializes_from_toml() {
         let cfg: GrokComConfig = toml::from_str(

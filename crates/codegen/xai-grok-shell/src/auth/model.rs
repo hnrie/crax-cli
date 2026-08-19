@@ -123,6 +123,19 @@ impl std::fmt::Debug for GrokAuth {
 }
 
 impl GrokAuth {
+    /// Wrap a static API key as a credential.
+    ///
+    /// Carries no session identity: there is no user, team, or refresh token
+    /// behind a static key, so consumers that only need a bearer token work
+    /// while session-gated features correctly treat it as non-session auth.
+    pub fn from_api_key(key: String) -> Self {
+        Self {
+            key,
+            auth_mode: AuthMode::ApiKey,
+            ..Default::default()
+        }
+    }
+
     /// Seconds since this credential was minted. Negative when the local
     /// clock stepped back past `create_time` (NTP correction, VM restore, or
     /// a sibling machine's clock via an adopted auth.json) — `create_time`

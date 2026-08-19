@@ -569,9 +569,18 @@ mod tests {
             let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             format!("http://127.0.0.1:{}", l.local_addr().unwrap().port())
         };
+        // No `preferred_method` pin: the shipped default pins
+        // `PreferredAuthMethod::ApiKey`, which fails closed on the OIDC login
+        // path this test exercises.
         let auth_manager = Arc::new(
-            AuthManager::new(temp_dir.path(), GrokComConfig::default())
-                .with_proxy_base_url(&dead_proxy),
+            AuthManager::new(
+                temp_dir.path(),
+                GrokComConfig {
+                    preferred_method: None,
+                    ..GrokComConfig::default()
+                },
+            )
+            .with_proxy_base_url(&dead_proxy),
         );
 
         let oidc_cfg = OidcAuthConfig {
