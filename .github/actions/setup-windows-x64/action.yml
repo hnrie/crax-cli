@@ -34,7 +34,3 @@ runs:
         Expand-Archive -Path $protocZip -DestinationPath "C:\protoc" -Force
         Add-Content -Path $env:GITHUB_PATH -Value "C:\protoc\bin"
         "PROTOC=C:\protoc\bin\protoc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-    - name: Verify protoc
-      shell: pwsh
-      run: protoc --version
