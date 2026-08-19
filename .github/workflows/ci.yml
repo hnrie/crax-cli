@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-x64:
+    name: Build & test (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Windows x64 build environment
+        uses: ./.github/actions/setup-windows-x64
+        with:
+          cache-prefix: ci
+
+      - name: Build release binary
+        shell: pwsh
+        run: cargo build -p xai-grok-pager-bin --profile release-dist --features release-dist
+
+      - name: Run test suite
+        shell: pwsh
+        run: cargo test -p xai-grok-config
+
+      - name: Check formatting
+        shell: pwsh
+        run: cargo fmt --all --check
+
+      - name: Lint with clippy
+        shell: pwsh
+        run: cargo clippy -p xai-grok-pager-bin --all-targets
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grok-windows-x64-${{ github.sha }}
+          path: target/release-dist/xai-grok-pager.exe
+          retention-days: 14

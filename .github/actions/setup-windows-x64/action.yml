@@ -1,0 +1,40 @@
+name: Setup Windows x64 build environment
+description: Installs the pinned Rust toolchain, hermetic protoc, and build cache for Windows x64 (MSVC) builds.
+
+inputs:
+  cache-prefix:
+    description: Prefix for the cargo cache key so workflows do not share stale artifacts.
+    required: false
+    default: windows-x64
+
+runs:
+  using: composite
+  steps:
+    - name: Install pinned Rust toolchain
+      shell: pwsh
+      run: rustup toolchain install 1.94.0 --profile default
+
+    - name: Show toolchain versions
+      shell: pwsh
+      run: |
+        rustc --version
+        cargo --version
+
+    - name: Cache cargo build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: ${{ inputs.cache-prefix }}
+        workspaces: . -> target
+
+    - name: Install protoc (proto codegen needs a real Windows binary)
+      shell: pwsh
+      run: |
+        $protocZip = Join-Path $env:TEMP "protoc-29.3-win64.zip"
+        Invoke-WebRequest -Uri "https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-win64.zip" -OutFile $protocZip
+        Expand-Archive -Path $protocZip -DestinationPath "C:\protoc" -Force
+        Add-Content -Path $env:GITHUB_PATH -Value "C:\protoc\bin"
+        "PROTOC=C:\protoc\bin\protoc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Verify protoc
+      shell: pwsh
+      run: protoc --version
