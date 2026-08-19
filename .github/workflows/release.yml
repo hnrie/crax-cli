@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows-x64:
+    name: Build & release (Windows x64)
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Windows x64 build environment
+        uses: ./.github/actions/setup-windows-x64
+        with:
+          cache-prefix: release
+
+      - name: Build release binary
+        shell: pwsh
+        run: cargo build -p xai-grok-pager-bin --profile release-dist --features release-dist
+
+      - name: Package binary
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item target/release-dist/xai-grok-pager.exe dist/grok.exe
+          Compress-Archive -Path dist/grok.exe -DestinationPath "dist/grok-$env:VERSION-windows-x64.zip" -Force
+          Get-ChildItem dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/grok.exe
+            dist/grok-${{ env.VERSION }}-windows-x64.zip
+          name: Grok Build ${{ env.VERSION }}
+          body: Auto-built Windows x64 binary for ${{ env.VERSION }}.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
