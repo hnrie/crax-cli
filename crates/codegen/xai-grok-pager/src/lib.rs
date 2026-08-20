@@ -46,6 +46,7 @@ pub mod search;
 pub mod sessions_cmd;
 pub mod settings;
 pub mod share_cmd;
+pub mod skill_cmd;
 pub mod slash;
 pub mod startup;
 pub mod tips;

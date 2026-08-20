@@ -204,6 +204,96 @@ The `--json` report includes the full detail for each skill: its `name`, `descri
 
 ---
 
+## Installing Skills from the Marketplace
+
+`grok skill` installs skills you didn't write. It reads the public [skills.sh](https://skills.sh) registry, any git repository, or a directory on your machine, and writes the result into one of your skill directories -- so an installed skill behaves exactly like one you authored by hand.
+
+### Find a Skill
+
+```bash
+grok skill search react                      # single-word queries use fuzzy matching
+grok skill search "next.js app router"       # multi-word queries use semantic search
+grok skill search deploy --owner vercel      # restrict to one GitHub owner
+grok skill search react --limit 5 --json     # machine-readable output
+```
+
+Results are ordered by install count:
+
+```
+  vercel-react-best-practices       646.7k  vercel-labs/agent-skills
+  vercel-react-native-skills        190.7k  vercel-labs/agent-skills
+  react:components                   50.6k  google-labs-code/stitch-skills
+```
+
+To see what a skill contains before installing it, run `grok skill info <source>`. It prints the file list and the first lines of `SKILL.md`.
+
+### Install a Skill
+
+```bash
+grok skill install vercel-labs/skills/find-skills     # a registry skill
+grok skill install vercel-labs/skills                 # every skill in a repository
+grok skill install vercel-labs/agent-skills@react-best-practices   # one skill from a repository
+grok skill install ./my-skills/deploy                 # a local directory
+```
+
+The `source` argument accepts every form you're likely to have on hand:
+
+| Form | Example |
+|------|---------|
+| Registry id | `vercel-labs/skills/find-skills` |
+| GitHub shorthand | `owner/repo` |
+| Repository subdirectory | `owner/repo/packages/skills` |
+| Single skill from a repo | `owner/repo@skill-name` |
+| Branch, tag, or commit | `owner/repo#v2.1` |
+| Browse URL | `https://github.com/owner/repo/tree/main/skills` |
+| GitLab | `https://gitlab.com/group/project` or `gitlab:group/project` |
+| SSH | `git@github.com:owner/repo.git` |
+| Local path | `./skills/deploy`, `~/skills`, `/abs/path` |
+
+A three-segment shorthand such as `owner/repo/name` is looked up in the registry first, then treated as a repository subdirectory.
+
+### Choose a Scope
+
+```bash
+grok skill install owner/repo                     # user scope (default): ~/.grok/skills/
+grok skill install owner/repo --scope project     # project scope: <repo root>/.grok/skills/
+```
+
+User-scope skills follow you across projects. Project-scope skills install at the repository root and can be committed, so the whole team gets them.
+
+### Manage Installed Skills
+
+```bash
+grok skill list                      # both scopes, with where each skill came from
+grok skill list --scope project      # one scope only
+grok skill update                    # re-fetch every marketplace skill
+grok skill update deploy             # update one skill
+grok skill remove deploy             # delete the skill and its install record
+grok skill remove deploy --keep-files  # stop tracking it but leave the files
+```
+
+Every command accepts `--json`, and `install` and `update` accept `--dry-run` to preview without writing.
+
+### Local Edits Are Protected
+
+Grok records a content hash when it installs a skill. If you edit an installed skill and then run `update` or reinstall, Grok stops rather than discarding your changes:
+
+```
+skill `deploy` has local edits; pass --force to discard them or copy them out before updating
+```
+
+Pass `--force` to take the upstream version anyway. Installing over a skill Grok did not install also requires `--force`, so a hand-written skill is never silently replaced.
+
+### Install Records
+
+Each scope keeps a `skills.lock.json` next to its `skills/` directory (`~/.grok/skills.lock.json`, or `<repo root>/.grok/skills.lock.json`). It records the source, resolved commit, content hash, and timestamps for every installed skill. Commit the project one to pin what your team gets; `grok skill update` uses it to re-resolve each source.
+
+### Using a Different Registry
+
+Set `GROK_SKILLS_REGISTRY_URL` to point search and downloads at a mirror that serves the same API. Grok only reads from the registry -- it sends no telemetry and needs no credentials.
+
+---
+
 ## Bundled and Plugin Skills
 
 Grok distributes platform skills separately from your personal skills. Bundled skills are cached under `~/.grok/bundled/skills/`; Grok never writes them into `~/.grok/skills/`. A same-named local, repo, or user skill overrides the bundled copy. `grok inspect` labels each definition by its actual source. (A plugin skill of the same name does not override a native skill; it stays available under its qualified `plugin:name` form.)
