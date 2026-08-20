@@ -253,6 +253,92 @@ fn clone_cli_command(url: &str, branch: Option<&str>, dest: &Path) -> std::proce
     cmd
 }
 
+/// Shallow-clone `url` into `dest` for a one-shot read, outside the marketplace
+/// source cache.
+///
+/// Skill installs clone a repository once, copy the files they need, and throw
+/// the checkout away, so they neither want the cache's TTL and lock nor the
+/// contention that sharing it would create. Returns the checked-out commit sha
+/// when it can be read, so an install can record exactly what it copied.
+pub fn clone_for_read(
+    url: &str,
+    git_ref: Option<&str>,
+    dest: &Path,
+) -> Result<Option<String>, String> {
+    let url = xai_grok_agent::plugins::git_install::validate_git_url(url)?;
+    let git_ref = git_ref
+        .map(xai_grok_agent::plugins::git_install::validate_git_ref)
+        .transpose()?;
+
+    // `--branch` accepts branches and tags but not arbitrary commit shas, so a
+    // sha falls back to a default-branch clone plus an explicit fetch.
+    let clone_ref =
+        git_ref.filter(|r| !xai_grok_agent::plugins::git_install::is_full_commit_sha(r));
+    clone_repo(url, clone_ref, dest)?;
+
+    if let Some(sha) =
+        git_ref.filter(|r| xai_grok_agent::plugins::git_install::is_full_commit_sha(r))
+    {
+        let mut fetch_cmd = git_command();
+        fetch_cmd
+            .current_dir(dest)
+            .args(["fetch", "--depth", "1", "--", "origin", sha]);
+        run_git_timed(&mut fetch_cmd, "fetch", NETWORK_OP_TIMEOUT)?;
+
+        let mut checkout_cmd = git_command();
+        checkout_cmd
+            .current_dir(dest)
+            .args(["checkout", "--detach", "FETCH_HEAD"]);
+        run_git_timed(&mut checkout_cmd, "checkout", NETWORK_OP_TIMEOUT)?;
+    }
+
+    Ok(read_head_sha(dest))
+}
+
+/// Read the checked-out commit sha, or `None` when git cannot report one.
+///
+/// Provenance is a nice-to-have on an install record, so a failure here is not
+/// worth failing the install over. `rev-parse` reads an already-cloned local
+/// repository and never touches the network, but it is still run under a
+/// bounded wait and killed on timeout so it cannot outlive the install.
+fn read_head_sha(repo_dir: &Path) -> Option<String> {
+    let mut cmd = git_command();
+    cmd.current_dir(repo_dir)
+        .args(["rev-parse", "HEAD"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[allow(clippy::disallowed_methods)] // enrolled and reaped immediately below
+    let mut child = cmd.spawn().ok()?;
+    let group = xai_tty_utils::global_process_scope()
+        .enroll_std(&child)
+        .ok();
+
+    let mut buffer = String::new();
+    let read = child
+        .stdout
+        .take()
+        .and_then(|mut stdout| std::io::Read::read_to_string(&mut stdout, &mut buffer).ok());
+
+    let status = match xai_tty_utils::wait_child_bounded(&mut child, NETWORK_OP_TIMEOUT) {
+        Ok(Some(status)) => Some(status),
+        // A hung or unwaitable `rev-parse` loses us only the commit field, but
+        // the child still has to die rather than linger past the install.
+        _ => {
+            let _ = child.kill();
+            let _ = xai_tty_utils::wait_child_bounded(&mut child, xai_tty_utils::KILL_REAP_TIMEOUT);
+            None
+        }
+    };
+    drop(group);
+
+    if read.is_none() || !status.is_some_and(|s| s.success()) {
+        return None;
+    }
+    let sha = buffer.trim().to_string();
+    (!sha.is_empty() && sha.chars().all(|c| c.is_ascii_hexdigit())).then_some(sha)
+}
+
 /// Probe whether `url` is a reachable git repository via a timed
 /// `git ls-remote`, without touching any cache. Used to reject non-git URLs
 /// (e.g. MCP endpoints) at add time instead of persisting a source that

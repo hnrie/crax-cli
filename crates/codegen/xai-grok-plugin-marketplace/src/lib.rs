@@ -1,8 +1,13 @@
-//! Plugin marketplace browse and index crate.
+//! Plugin and skill marketplace crate.
 //!
-//! Provides marketplace source configuration, plugin discovery (indexed +
-//! filesystem fallback), and install integration with the existing
-//! `InstallRegistry` pipeline.
+//! Two marketplaces share this crate because they share their plumbing:
+//!
+//! - **Plugins** — marketplace source configuration, plugin discovery (indexed +
+//!   filesystem fallback), and install integration with the existing
+//!   `InstallRegistry` pipeline.
+//! - **Skills** — search and install from the public skills.sh registry, from
+//!   any git repository, or from a local directory, tracked by a lockfile so
+//!   installs can be listed, updated, and removed.
 
 pub mod catalog;
 pub mod config;
@@ -13,6 +18,13 @@ pub mod install_resolve;
 pub mod installer;
 pub mod matcher;
 pub mod scanner;
+pub mod skill_git;
+pub mod skill_install;
+pub mod skill_lock;
+pub mod skill_registry;
+pub mod skill_scope;
+pub mod skill_source;
+pub mod skill_validate;
 pub mod types;
 
 pub use config::{
@@ -21,6 +33,14 @@ pub use config::{
 };
 pub use error::MarketplaceError;
 pub use scanner::scan_marketplace;
+pub use skill_install::{
+    InstallAction, InstallOptions, InstalledSkill, SkillInstallError, install as install_skill,
+    remove as remove_skill, update as update_skill,
+};
+pub use skill_lock::{SkillLock, SkillLockEntry, SkillOrigin};
+pub use skill_registry::{RegistryClient, RegistryError, RegistrySkill, RegistrySkillFiles};
+pub use skill_scope::{SkillScopeKind, SkillScopeTarget};
+pub use skill_source::{GitHost, SkillSource, SkillSourceError, parse_skill_source};
 pub use types::*;
 
 /// Display name of the official xAI marketplace source.
