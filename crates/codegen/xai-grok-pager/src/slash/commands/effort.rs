@@ -3,6 +3,7 @@
 //! Thin wrapper over `Action::SwitchModel` with the session's current model
 //! id and the chosen effort (same wire path as `/model <name> <effort>`).
 
+use crate::acp::model_state::EffortTokenError;
 use crate::app::actions::Action;
 use crate::slash::command::{AppCtx, ArgItem, CommandExecCtx, CommandResult, SlashCommand};
 use crate::slash::commands::effort_levels::build_effort_arg_items;
@@ -61,23 +62,27 @@ impl SlashCommand for EffortCommand {
         };
 
         if trimmed.is_empty() {
+            // An empty menu means the model is unsupported (or absent from the
+            // catalog) — exactly what `resolve_effort_for_model` gates on below.
+            // Report that instead of prompting for a level the model cannot take.
             let offered: Vec<String> = ctx
                 .models
                 .reasoning_effort_options_for(&model_id)
                 .into_iter()
                 .map(|opt| opt.id)
                 .collect();
+            if offered.is_empty() {
+                return CommandResult::Error(EffortTokenError::Unsupported.message());
+            }
             let current = ctx
                 .models
                 .reasoning_effort
                 .map(|e| format!(" (current: {e})"))
                 .unwrap_or_default();
-            let levels = if offered.is_empty() {
-                "<level>".to_string()
-            } else {
+            return CommandResult::Error(format!(
+                "Usage: /effort <{}>{current}",
                 offered.join("|")
-            };
-            return CommandResult::Error(format!("Usage: /effort <{levels}>{current}"));
+            ));
         }
 
         // Same gate-first policy as the CLI (`--effort`) and headless.
@@ -162,6 +167,60 @@ mod tests {
                 assert!(msg.contains("current: medium"));
                 assert!(!msg.contains("none"));
                 assert!(!msg.contains("minimal"));
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_args_usage_has_exactly_one_bracket_pair() {
+        // Regression: the level list was interpolated inside a literal
+        // `<...>`, so the no-menu fallback rendered `<<level>>`.
+        let mut state = ModelState::default();
+        let (id, info) = model_with_reasoning("reasoning-x", "Reasoning X");
+        state.available.insert(id.clone(), info);
+        state.current = Some(id);
+        let mut ctx = dummy_exec_ctx(&state);
+        match EffortCommand.run(&mut ctx, "") {
+            CommandResult::Error(msg) => {
+                assert!(!msg.contains("<<"), "msg={msg}");
+                assert!(!msg.contains(">>"), "msg={msg}");
+                assert_eq!(msg.matches('<').count(), 1, "msg={msg}");
+                assert_eq!(msg.matches('>').count(), 1, "msg={msg}");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_args_on_unsupported_model_reports_unsupported() {
+        // A model with no effort menu cannot take any level, so bare `/effort`
+        // must say why instead of printing a usage line with no levels in it.
+        let mut state = ModelState::default();
+        let (id, info) = plain_model("grok-4.5", "Grok 4.5");
+        state.available.insert(id.clone(), info);
+        state.current = Some(id);
+        let mut ctx = dummy_exec_ctx(&state);
+        match EffortCommand.run(&mut ctx, "") {
+            CommandResult::Error(msg) => {
+                assert_eq!(msg, "current model does not support reasoning effort");
+                assert!(!msg.contains("Usage:"), "msg={msg}");
+                assert!(!msg.contains("<level>"), "msg={msg}");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_args_on_uncatalogued_model_reports_unsupported() {
+        // `current` set but absent from the catalog resolves to an empty menu —
+        // same gate `resolve_effort_for_model` applies to a typed level.
+        let mut state = ModelState::default();
+        state.current = Some(acp::ModelId::new(Arc::from("ghost")));
+        let mut ctx = dummy_exec_ctx(&state);
+        match EffortCommand.run(&mut ctx, "") {
+            CommandResult::Error(msg) => {
+                assert_eq!(msg, "current model does not support reasoning effort");
             }
             other => panic!("expected Error, got {other:?}"),
         }
